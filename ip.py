@@ -16,6 +16,7 @@ class IP:
         self.ignore_checksum = self.enlace.ignore_checksum
         self.meu_endereco = None
         self.tabela_encaminhamento = []
+        self.identification = 0  # Adicionando o atributo identification e inicializando-o como 0
 
     def __raw_recv(self, datagrama):
         dscp, ecn, identification, flags, frag_offset, ttl, proto, \
@@ -65,11 +66,32 @@ class IP:
         self.callback = callback
 
     def enviar(self, segmento, dest_addr):
-        """
-        Envia segmento para dest_addr, onde dest_addr é um endereço IPv4
-        (string no formato x.y.z.w).
-        """
         next_hop = self._next_hop(dest_addr)
-        # TODO: Assumindo que a camada superior é o protocolo TCP, monte o
-        # datagrama com o cabeçalho IP, contendo como payload o segmento.
+
+        # Cabeçalho IP
+        version_ihl = 69  # Versão 4 (IPv4) e Internet Header Length (5 palavras de 32 bits, 20 bytes)
+        dscp_ecn = 0  # DSCP (Differentiated Services Code Point) e ECN (Explicit Congestion Notification) - não usaremos diferenciação de serviços ou notificação de congestão
+        total_len = 20 + len(segmento)  # Tamanho total do datagrama (20 bytes do cabeçalho IP + tamanho do segmento)
+        identification = self.identification  # Número de identificação do datagrama
+        flags_frag = 0  # Flags e deslocamento de fragmento (não usaremos fragmentação)
+        ttl = 64  # Time-to-Live (tempo de vida) do datagrama
+        proto = IPPROTO_TCP  # Protocolo TCP
+        checksum = 0  # O checksum será calculado posteriormente
+        src_addr = str2addr(self.meu_endereco)  # Endereço IP de origem (convertemos para o formato inteiro)
+        dest_addr = str2addr(dest_addr)  # Endereço IP de destino (convertemos para o formato inteiro)
+
+        # Montando o cabeçalho IP
+        header = struct.pack('!BBHHHBBH', version_ihl, dscp_ecn, total_len, identification, flags_frag, ttl, proto, checksum) + src_addr + dest_addr
+
+        # Calculando o checksum do cabeçalho IP (campo checksum inicializado com 0)
+        checksum = calc_checksum(header)
+        header = struct.pack('!BBHHHBBH', version_ihl, dscp_ecn, total_len, identification, flags_frag, ttl, proto, checksum) + src_addr + dest_addr
+
+        # Montando o datagrama completo (cabeçalho IP + payload)
+        datagrama = header + segmento
+
+        # Enviando o datagrama para o próximo salto (next_hop)
         self.enlace.enviar(datagrama, next_hop)
+
+        # Incrementando o número de identificação do datagrama para o próximo envio
+        self.identification += 1
