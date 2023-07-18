@@ -33,11 +33,18 @@ class IP:
 
 
     def _next_hop(self, dest_addr):
+        matched_network = None
+        matched_prefix_length = -1
+
         for cidr, next_hop in self.tabela:
             network = ip_network(cidr)
             if ip_address(dest_addr) in network:
-                return next_hop
-        return None
+                prefix_length = network.prefixlen
+                if prefix_length > matched_prefix_length:
+                    matched_network = next_hop
+                    matched_prefix_length = prefix_length
+
+        return matched_network
 
     def definir_endereco_host(self, meu_endereco):
         """
