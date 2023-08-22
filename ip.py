@@ -19,17 +19,40 @@ class IP:
         self.identification = 0  # Adicionando o atributo identification e inicializando-o como 0
 
     def __raw_recv(self, datagrama):
-        dscp, ecn, identification, flags, frag_offset, ttl, proto, \
-           src_addr, dst_addr, payload = read_ipv4_header(datagrama)
+        dscp, ecn, identification, flags, frag_offset, ttl, proto, src_addr, dst_addr, payload = read_ipv4_header(datagrama)
+        
         if dst_addr == self.meu_endereco:
-            # atua como host
+            # Atuando como host
             if proto == IPPROTO_TCP and self.callback:
                 self.callback(src_addr, dst_addr, payload)
         else:
-            # atua como roteador
-            next_hop = self._next_hop(dst_addr)
-            # TODO: Trate corretamente o campo TTL do datagrama
+            # Roteador
+            vihl, dscpecn, total_len, identification, flagsfrag, ttl, proto, checksum, src_addr, dest_addr = struct.unpack('!BBHHHBBHII', datagrama[:20])
+            
+            # Decrementa TTL
+            ttl -= 1
+            
+            if ttl == 0:
+                # TTL expirou, enviar mensagem ICMP de tempo excedido
+                typ = 11
+                code = 0
+                checksum_icmp = calc_checksum(struct.pack('!BBHI', typ, code, 0, 0) + datagrama[:28])
+                icmp = struct.pack('!BBHI', typ, code, checksum_icmp, 0) + datagrama[:28]
+                addr_int = int.from_bytes(str2addr(self.meu_endereco), "big")
+                checksum = calc_checksum(struct.pack('!BBHHHBBHII', vihl, dscpecn, 20 + len(icmp), identification, flagsfrag, 64, 1, 0, addr_int, src_addr))
+                datagrama = struct.pack('!BBHHHBBHII', vihl, dscpecn, 20 + len(icmp), identification, flagsfrag, 64, 1, checksum, addr_int, src_addr) + icmp
+                self.identification += 1
+                next_hop = self._next_hop(src_addr)
+            else:
+                # Atualiza checksum e envia datagrama
+                checksum = 0  # Zera o checksum para recalcular
+                datagrama = struct.pack('!BBHHHBBHII', vihl, dscpecn, total_len, identification, flagsfrag, ttl, proto, checksum, src_addr, dest_addr) + datagrama[20:]
+                checksum = calc_checksum(datagrama)
+                datagrama = struct.pack('!BBHHHBBHII', vihl, dscpecn, total_len, identification, flagsfrag, ttl, proto, checksum, src_addr, dest_addr) + datagrama[20:]
+                next_hop = self._next_hop(dest_addr)
+            
             self.enlace.enviar(datagrama, next_hop)
+
 
 
     def _next_hop(self, dest_addr):
